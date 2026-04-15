@@ -1,0 +1,112 @@
+:root{
+  --accent:#f57c00;
+  --bg:#f3f6f9;
+  --card:#ffffff;
+  --text:#1f2937;
+  --muted:#6b7280;
+  --radius:10px;
+  --max-width:1000px;
+}
+
+html,body{height:100%;}
+body{
+  margin:0;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif; 
+  color:var(--text); 
+  background: linear-gradient(180deg, #eef6ff 0%, var(--bg) 100%);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  display:flex;
+  justify-content:center;
+  padding:30px 16px;
+}
+
+/* Page wrapper with three primary divs for layout */
+#page-wrapper{
+  width:100%;
+  max-width:var(--max-width);
+  display:grid;
+  grid-template-columns: 1fr 320px;
+  gap:20px;
+  align-items:start;
+}
+
+/* Header, content, sidebar, footer are styled blocks (divs) */
+.site-header{
+  grid-column:1/-1;
+  background:var(--card);
+  padding:18px;
+  border-radius:var(--radius);
+  box-shadow:0 2px 8px rgba(34,41,47,0.06);
+}
+.site-header h1{margin:0 0 6px;color:#0b2033}
+.subtitle{margin:0;color:var(--muted)}
+
+/* content column */
+.content{
+  background:transparent;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+/* sidebar column */
+.sidebar{
+  background:var(--card);
+  padding:14px;
+  border-radius:var(--radius);
+  height:fit-content;
+}
+
+/* Cards used inside content and footer */
+.card{
+  background:var(--card);
+  padding:14px;
+  border-radius:var(--radius);
+  box-shadow:0 1px 6px rgba(34,41,47,0.04);
+}
+
+/* Footer spans full width */
+.site-footer{
+  grid-column:1/-1;
+  text-align:center;
+  font-size:0.95rem;
+  color:var(--muted);
+}
+
+/* Image and video wrappers */
+.hero-img{
+  width:100%;
+  max-width:100%;
+  height:auto;
+  border-radius:6px;
+  display:block;
+  margin-top:8px;
+}
+
+.video-wrapper iframe,
+.tableau-wrapper iframe{
+  width:100%;
+  border-radius:6px;
+}
+
+/* Navigation & small helpers */
+.top-nav a{color:var(--accent);text-decoration:none;font-weight:600}
+.top-nav a:hover{text-decoration:underline}
+a{color:var(--accent)}
+ol,ul{margin-left:1.1rem}
+@media (max-width:900px){
+  #page-wrapper{grid-template-columns:1fr; padding-bottom:20px}
+  .sidebar{order:3}
+  .site-header{position:sticky;top:0;z-index:3}
+}
+.tableau-wrapper, .tableauPlaceholder, .tableauViz, .tableauPlaceholder object {
+  width: 100% !important;
+  max-width: 100%;
+  height: auto !important;
+}
+.tableau-wrapper { max-width: 1200px; margin: 0 auto; }
+/* Optional for consistent aspect ratio */
+.tableau-wrapper { aspect-ratio: 16 / 9; height: auto; }
+
+.tableauPlaceholder, .tableauViz { width:100% !important; height:600px !important; }

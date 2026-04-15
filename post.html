@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2D 3-Point Shooter</title>
+<style>
+  :root{--bg:#0f1724;--panel:#0b1220;--accent:#ffb84d;--muted:#9aa4b2;--white:#eef6ff}
+  *{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),#071021);color:var(--white);min-height:100vh;display:flex;flex-direction:column;align-items:center}
+  .navbar{width:100%;background:rgba(255,255,255,0.03);backdrop-filter: blur(6px);display:flex;gap:12px;padding:12px 18px;align-items:center}
+  .brand{font-weight:600;color:var(--accent);margin-right:auto}
+  .navlinks{display:flex;gap:10px}
+  .navlinks a{color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:6px}
+  .navlinks a:hover{background:rgba(255,255,255,0.02);color:var(--white)}
+  .container{max-width:1000px;width:100%;padding:18px;display:flex;gap:18px;align-items:flex-start}
+  .game-panel{flex:1;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;padding:14px}
+  .hud{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+  .stat{background:var(--panel);padding:10px 12px;border-radius:8px;color:var(--muted);min-width:110px;text-align:center}
+  .stat b{display:block;color:var(--white);font-size:18px}
+  canvas{background:linear-gradient(180deg,#67a3ff0a,transparent);display:block;border-radius:8px;width:100%;height:520px;cursor:crosshair}
+  .controls{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:var(--accent);color:#052;border:none;padding:8px 12px;border-radius:8px;font-weight:600;cursor:pointer}
+  .btn.secondary{background:transparent;color:var(--muted);border:1px solid rgba(255,255,255,0.04)}
+  .sidebar{width:260px;flex-shrink:0;display:flex;flex-direction:column;gap:10px}
+  .card{background:var(--panel);padding:12px;border-radius:10px;color:var(--muted)}
+  .title{font-weight:700;color:var(--white);margin-bottom:8px}
+  footer{color:var(--muted);font-size:13px;margin:18px 0}
+  @media (max-width:880px){.container{flex-direction:column;padding:12px}.sidebar{width:100%}}
+</style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="brand">3-Point Shooter</div>
+    <div class="navlinks">
+      <a href="index.html">Home</a>
+      <a href="about.html">Basketball</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="game-panel">
+      <div class="hud">
+        <div class="stat">Attempts<b id="attempts">5</b></div>
+        <div class="stat">Score<b id="score">0</b></div>
+        <div class="stat">Power<b id="power">0</b></div>
+        <div class="stat">Angle<b id="angle">0°</b></div>
+      </div>
+
+      <canvas id="game" width="900" height="520"></canvas>
+
+      <div class="controls">
+        <button class="btn" id="resetBtn">Reset Game</button>
+        <button class="btn secondary" id="newShotBtn">Next Shot (space)</button>
+        <div style="color:var(--muted);align-self:center;font-size:13px">Click & drag from the shooter to set angle & power</div>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="card">
+        <div class="title">How to play</div>
+        <div class="instr">
+          - Click the shooter and drag to set angle & power.<br>
+          - Release to shoot. 5 attempts.<br>
+          - Aim so the ball passes through the open center under the rim edges.
+        </div>
+      </div>
+      <div class="card">
+        <div class="title">Scoring</div>
+        <div class="instr">- Ball fully passing downward through rim opening = 3 points.</div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const attemptsEl = document.getElementById('attempts');
+  const scoreEl = document.getElementById('score');
+  const powerEl = document.getElementById('power');
+  const angleEl = document.getElementById('angle');
+  const resetBtn = document.getElementById('resetBtn');
+  const newShotBtn = document.getElementById('newShotBtn');
+
+  const W = canvas.width, H = canvas.height;
+  const floorY = H - 40;
+  const shooter = { x: 140, y: floorY - 24, r: 12 };
+
+  // Rim + backboard config
+  const rim = {
+    x: W - 190,
+    y: floorY - 180,
+    barWidth: 72,
+    barThickness: 8,
+    edgeThickness: 8,
+    openingMargin: 10
+  };
+  const backboard = { x: rim.x + 40, y: rim.y - 44, w: 10, h: 88 };
+
+  const BALL_RADIUS = 8;
+  let attempts = 5, score = 0;
+  let ball = null;
+  let dragging = false, dragStart = null, dragEnd = null;
+  let inFlight = false, lastShotResult = null;
+
+  const gravity = 0.5, air = 0.998;
+  const POWER_MULT = 0.36, MAX_POWER = 260;
+
+  function updateHUD(p = 0, a = 0) {
+    attemptsEl.textContent = attempts;
+    scoreEl.textContent = score;
+    powerEl.textContent = Math.round(p);
+    angleEl.textContent = Math.round(a) + '°';
+  }
+  function resetGame() {
+    attempts = 5; score = 0; ball = null; inFlight = false; dragging = false; lastShotResult = null; updateHUD();
+  }
+  function newShotPrep() {
+    if (inFlight || attempts <= 0) return;
+    ball = { x: shooter.x + shooter.r + 2, y: shooter.y, vx: 0, vy: 0, r: BALL_RADIUS, active: false };
+    lastShotResult = null; updateHUD();
+  }
+
+  // Opening rectangle under bar where ball may pass
+  function getOpeningRect() {
+    const leftEdgeRight = rim.x - rim.barWidth / 2 + rim.edgeThickness;
+    const rightEdgeLeft = rim.x + rim.barWidth / 2 - rim.edgeThickness;
+    const openingLeft = leftEdgeRight + rim.openingMargin/2;
+    const openingRight = rightEdgeLeft - rim.openingMargin/2;
+    const openingTop = rim.y + rim.barThickness/2;
+    const openingBottom = openingTop + 40;
+    return { left: openingLeft, right: openingRight, top: openingTop, bottom: openingBottom };
+  }
+
+  // Check score when center of ball passes downward through top of opening and fully inside horizontally
+  function checkScore(prevY, curY, b) {
+    const opening = getOpeningRect();
+    const insideX = (b.x - b.r) >= opening.left && (b.x + b.r) <= opening.right;
+    const passedDown = prevY < opening.top && curY >= opening.top;
+    if (insideX && passedDown && b.vy > 0) return true;
+    return false;
+  }
+
+  // Collide only with thin left/right edges. If ball is within opening rectangle (net area) allow free pass (no collision).
+  function collideRimEdges(b) {
+    const opening = getOpeningRect();
+    // If ball center is inside the opening vertical span (net area) and horizontally within opening, do not collide
+    if (b.x > opening.left - b.r && b.x < opening.right + b.r && b.y > opening.top && b.y < opening.bottom) {
+      return false;
+    }
+
+    const leftEdge = {
+      left: rim.x - rim.barWidth/2,
+      right: rim.x - rim.barWidth/2 + rim.edgeThickness,
+      top: rim.y - rim.barThickness/2,
+      bottom: rim.y + rim.barThickness/2
+    };
+    const rightEdge = {
+      left: rim.x + rim.barWidth/2 - rim.edgeThickness,
+      right: rim.x + rim.barWidth/2,
+      top: rim.y - rim.barThickness/2,
+      bottom: rim.y + rim.barThickness/2
+    };
+
+    function collideRect(rect) {
+      const cx = Math.max(rect.left, Math.min(b.x, rect.right));
+      const cy = Math.max(rect.top, Math.min(b.y, rect.bottom));
+      const dx = b.x - cx, dy = b.y - cy;
+      if (dx*dx + dy*dy <= b.r * b.r) {
+        // reflect depending on penetration axis
+        if (Math.abs(dx) > Math.abs(dy)) {
+          b.vx = -b.vx * 0.75;
+          b.x += dx > 0 ? b.r : -b.r;
+        } else {
+          b.vy = -b.vy * 0.6;
+          b.y += dy > 0 ? b.r : -b.r;
+        }
+        return true;
+      }
+      return false;
+    }
+    return collideRect(leftEdge) || collideRect(rightEdge);
+  }
+
+  function collideBackboard(b) {
+    const bb = backboard;
+    if (b.x + b.r > bb.x && b.x - b.r < bb.x + bb.w &&
+        b.y + b.r > bb.y && b.y - b.r < bb.y + bb.h) {
+      b.vx = -Math.abs(b.vx) * 0.75;
+      b.x = bb.x - b.r - 1;
+      return true;
+    }
+    return false;
+  }
+
+  function drawScene() {
+    ctx.clearRect(0,0,W,H);
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'rgba(255,255,255,0.02)'); g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#061227'; ctx.fillRect(0, floorY, W, H - floorY);
+
+    // 3pt arc
+    ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+    ctx.arc(shooter.x - 20, floorY - 6, 280, -Math.PI/2.7, -Math.PI/5, false); ctx.stroke();
+
+    // backboard (draw behind rim)
+    ctx.fillStyle = '#cfcfcf22'; ctx.fillRect(backboard.x, backboard.y, backboard.w, backboard.h);
+
+    // rim bar (visual)
+    const barLeft = rim.x - rim.barWidth/2;
+    const barTop = rim.y - rim.barThickness/2;
+    ctx.fillStyle = '#d94b3a';
+    ctx.fillRect(barLeft, barTop, rim.barWidth, rim.barThickness);
+
+    // thin edge highlights
+    ctx.fillStyle = '#ff8a72';
+    ctx.fillRect(barLeft, barTop, rim.edgeThickness, rim.barThickness);
+    ctx.fillRect(rim.x + rim.barWidth/2 - rim.edgeThickness, barTop, rim.edgeThickness, rim.barThickness);
+
+    // net visual (opening) — lines only, non-colliding
+    const opening = getOpeningRect();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1;
+    for (let i=0;i<=6;i++){
+      const nx = opening.left + (i/6)*(opening.right - opening.left);
+      ctx.beginPath(); ctx.moveTo(nx, opening.top); ctx.lineTo(nx + (i%2?6:-6), opening.bottom); ctx.stroke();
+    }
+
+    // shooter
+    ctx.beginPath(); ctx.fillStyle = '#ffd37a'; ctx.arc(shooter.x, shooter.y, shooter.r, 0, Math.PI*2); ctx.fill();
+
+    // ball
+    if (ball) {
+      ctx.beginPath(); ctx.fillStyle = '#ffbf6b'; ctx.lineWidth = 2; ctx.strokeStyle = '#b36a2d';
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    }
+
+    // aim preview
+    if (dragging && dragStart && dragEnd) {
+      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,200,120,0.9)'; ctx.lineWidth = 2; ctx.moveTo(dragStart.x, dragStart.y); ctx.lineTo(dragEnd.x, dragEnd.y); ctx.stroke();
+      const dx = dragStart.x - dragEnd.x, dy = dragStart.y - dragEnd.y;
+      const power = Math.min(MAX_POWER, Math.sqrt(dx*dx + dy*dy));
+      const ang = Math.atan2(dy, dx);
+      let simX = ball ? ball.x : shooter.x + shooter.r + 2;
+      let simY = ball ? ball.y : shooter.y;
+      let simVx = Math.cos(ang) * power * POWER_MULT * -1;
+      let simVy = Math.sin(ang) * power * POWER_MULT * -1;
+      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+      for (let t=0;t<260;t++){
+        const nextX = simX + simVx;
+        const nextY = simY + simVy;
+        ctx.moveTo(simX, simY); ctx.lineTo(nextX, nextY);
+        simX = nextX; simY = nextY;
+        simVx *= air; simVy += gravity;
+      }
+      ctx.stroke();
+    }
+
+    if (attempts <= 0 && !inFlight) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W/2 - 180, H/2 - 40, 360, 80);
+      ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('Game Over — Final Score: ' + score, W/2, H/2 - 6);
+      ctx.font = '14px sans-serif'; ctx.fillText('Press Reset Game to play again', W/2, H/2 + 18);
+    }
+  }
+
+  function step() {
+    if (ball && inFlight) {
+      const prevY = ball.y;
+      ball.x += ball.vx; ball.y += ball.vy;
+      ball.vx *= air; ball.vy += gravity;
+
+      // floor collision
+      if (ball.y + ball.r > floorY) {
+        ball.y = floorY - ball.r;
+        ball.vy = -Math.abs(ball.vy) * 0.5;
+        ball.vx *= 0.6;
+        if (Math.abs(ball.vy) < 1 && Math.abs(ball.vx) < 0.8) { ball.vx = 0; ball.vy = 0; inFlight = false; lastShotResult = 'miss'; }
+      }
+
+      // collisions: thin rim edges (left/right) and backboard.
+      // Important: if the ball is inside the opening rectangle (the net area) do not collide so it can pass through freely.
+      collideRimEdges(ball);
+      collideBackboard(ball);
+
+      // scoring: when center passes downward through opening top and fully inside horizontally
+      if (lastShotResult === null && checkScore(prevY, ball.y, ball)) {
+        score += 3; lastShotResult = 'score'; inFlight = false;
+      }
+    }
+    drawScene();
+    requestAnimationFrame(step);
+  }
+
+  function posFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+    const clientY = (e.touches ? e.touches[0].clientY : e.clientY);
+    return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    if (inFlight || attempts <= 0) return;
+    const p = posFromEvent(e);
+    if (Math.hypot(p.x - shooter.x, p.y - shooter.y) <= 36) { dragging = true; dragStart = { x: shooter.x, y: shooter.y }; dragEnd = p; if (!ball) newShotPrep(); updateHUD(0,0); }
+  });
+  canvas.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    dragEnd = posFromEvent(e);
+    const dx = dragStart.x - dragEnd.x, dy = dragStart.y - dragEnd.y;
+    const power = Math.min(MAX_POWER, Math.sqrt(dx*dx + dy*dy));
+    const angle = Math.atan2(dy, dx) * (180/Math.PI) * -1;
+    updateHUD(power, angle);
+  });
+  window.addEventListener('mouseup', e => {
+    if (!dragging) return;
+    dragging = false; dragEnd = posFromEvent(e);
+    const dx = dragStart.x - dragEnd.x, dy = dragStart.y - dragEnd.y;
+    const power = Math.min(MAX_POWER, Math.sqrt(dx*dx + dy*dy));
+    const ang = Math.atan2(dy, dx);
+    if (!ball) newShotPrep();
+    ball.vx = Math.cos(ang) * power * POWER_MULT * -1;
+    ball.vy = Math.sin(ang) * power * POWER_MULT * -1;
+    ball.active = true; inFlight = true; attempts--; updateHUD(power, (ang * -180/Math.PI).toFixed(1));
+    if (Math.abs(ball.vx) < 0.2 && Math.abs(ball.vy) < 0.2) { inFlight = false; lastShotResult = 'miss'; }
+  });
+
+  // touch support
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); canvas.dispatchEvent(new MouseEvent('mousedown', {clientX: e.touches[0].clientX, clientY: e.touches[0].clientY})); });
+  canvas.addEventListener('touchmove', e => { e.preventDefault(); canvas.dispatchEvent(new MouseEvent('mousemove', {clientX: e.touches[0].clientX, clientY: e.touches[0].clientY})); });
+  canvas.addEventListener('touchend', e => { e.preventDefault(); canvas.dispatchEvent(new MouseEvent('mouseup', {})); });
+
+  resetBtn.addEventListener('click', () => { resetGame(); newShotPrep(); });
+  newShotBtn.addEventListener('click', () => { if (!inFlight && attempts>0) newShotPrep(); });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { e.preventDefault(); if (!inFlight && attempts>0) newShotPrep(); }
+    else if (e.key.toLowerCase() === 'r') { resetGame(); newShotPrep(); }
+  });
+
+  resetGame(); newShotPrep(); requestAnimationFrame(step);
+})();
+</script>
+</body>
+</html>
